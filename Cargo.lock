@@ -522,6 +522,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "example"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "common",
+ "icengine",
+ "render",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -738,7 +748,10 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 name = "icengine"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "common",
  "pollster",
+ "render",
  "winit",
 ]
 
@@ -1612,6 +1625,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "common",
  "env_logger",
  "log",
  "pollster",

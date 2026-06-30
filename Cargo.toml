@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["common", "icengine", "render"]
+members = ["common", "example", "icengine", "render"]
 
 [workspace.lints.clippy]
 all = "warn"
