@@ -1,8 +1,11 @@
+pub mod storage;
+
 pub struct Server<'window> {
     surface: wgpu::Surface<'window>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    database: storage::Database,
 }
 
 impl<'w> Server<'w> {
@@ -58,6 +61,7 @@ impl<'w> Server<'w> {
             device,
             queue,
             config,
+            database: storage::Database::new(),
         })
     }
 
@@ -98,7 +102,7 @@ impl<'w> Server<'w> {
                 label: Some("Render Encoder"),
             });
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -119,11 +123,43 @@ impl<'w> Server<'w> {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+            self.draw_objects(&mut render_pass);
         }
 
         self.queue.submit(Some(encoder.finish()));
         output.present();
         Ok(())
+    }
+
+    fn draw_objects(&self, render_pass: &mut wgpu::RenderPass) {
+        for instance in self.database.instances_iter() {
+            let model = self.database.get_model(instance.model());
+            let mesh = self.database.get_mesh(model.mesh());
+            let pipeline = self.database.get_pipeline(model.pipeline());
+            render_pass.set_pipeline(pipeline);
+            match mesh.indices() {
+                Some(indices) => {
+                    let index_buffer = {
+                        use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                        self.device.create_buffer_init(&BufferInitDescriptor {
+                            label: Some("Index Buffer"),
+                            contents: bytemuck::cast_slice(indices),
+                            usage: wgpu::BufferUsages::INDEX,
+                        })
+                    };
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.draw_indexed(
+                        0..indices.len() as u32,
+                        0,
+                        0..instance.transforms().len() as u32,
+                    )
+                }
+                None => render_pass.draw(
+                    0..mesh.vertices().len() as u32,
+                    0..instance.transforms().len() as u32,
+                ),
+            }
+        }
     }
 
     fn configure_surface(&self) {
