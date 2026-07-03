@@ -1,24 +1,37 @@
-use common::error::EngineError;
+use common::error::Error;
 use std::sync::Arc;
 
-pub mod scene;
+mod scene;
 pub use scene::*;
 
+mod command;
+pub use command::*;
+
 pub struct EngineCtl<'frame> {
-    render_server: &'frame mut render::Server<'static>,
+    render_server: &'frame mut render::storage::Database,
+}
+
+impl EngineCtl<'_> {
+    pub fn render_server_mut(&mut self) -> &mut render::storage::Database {
+        self.render_server
+    }
 }
 
 pub struct Engine {
     window: Option<Arc<winit::window::Window>>,
+    active_scene: Box<dyn Scene>,
     render_server: Option<render::Server<'static>>,
-    errors: Vec<EngineError>,
+    commands: Vec<Command>,
+    errors: Vec<Error>,
 }
 
 impl Engine {
-    fn new() -> Self {
+    fn new(active_scene: Box<dyn Scene>) -> Self {
         Self {
             window: None,
+            active_scene,
             render_server: None,
+            commands: vec![],
             errors: vec![],
         }
     }
@@ -30,7 +43,7 @@ impl winit::application::ApplicationHandler for Engine {
         let window = match event_loop.create_window(window_attributes) {
             Ok(window) => window,
             Err(error) => {
-                self.errors.push(EngineError::new_fatal(error.into()));
+                self.errors.push(Error::new_fatal(error.into()));
                 return;
             }
         };
@@ -41,7 +54,7 @@ impl winit::application::ApplicationHandler for Engine {
             match pollster::block_on(render::Server::new(Arc::clone(&window), size)) {
                 Ok(rs) => Some(rs),
                 Err(error) => {
-                    self.errors.push(EngineError::new_fatal(error));
+                    self.errors.push(Error::new_fatal(error));
                     return;
                 }
             };
@@ -61,11 +74,20 @@ impl winit::application::ApplicationHandler for Engine {
                 return;
             }
         }
-        // SAFETY: If render_server was none, we already bailed
+        // SAFETY: If any of these resources are none, we already bailed
         let render_server = unsafe { self.render_server.as_mut().unwrap_unchecked() };
+        let window = unsafe { self.window.as_mut().unwrap_unchecked() };
         match event {
-            winit::event::WindowEvent::Resized(physical_size) => (),
-            winit::event::WindowEvent::CloseRequested => event_loop.exit(),
+            winit::event::WindowEvent::Resized(physical_size) => {
+                render_server.resize(common::texture::FixedSize::new(
+                    physical_size.width,
+                    physical_size.height,
+                ));
+            }
+            winit::event::WindowEvent::CloseRequested => {
+                event_loop.exit();
+                return;
+            }
             winit::event::WindowEvent::KeyboardInput {
                 event:
                     winit::event::KeyEvent {
@@ -99,17 +121,41 @@ impl winit::application::ApplicationHandler for Engine {
                 state,
                 button,
             } => (),
-            winit::event::WindowEvent::RedrawRequested => match render_server.render() {
-                Ok(()) => (),
-                Err(error) => self.errors.push(EngineError::new(error)),
-            },
+            winit::event::WindowEvent::RedrawRequested => {
+                // respond to all engine commands
+                for command in self.commands.drain(..) {
+                    match command {
+                        Command::Exit => {
+                            event_loop.exit();
+                            return;
+                        }
+                        Command::SetScene(scene) => {
+                            self.active_scene = scene;
+                            self.active_scene.start(EngineCtl {
+                                render_server: render_server.database_mut(),
+                            });
+                        }
+                    }
+                }
+                // check time, tick if enough time has elapsed
+
+                // display
+
+                // render
+                match render_server.render() {
+                    Ok(()) => (),
+                    Err(error) => self.errors.push(Error::new(error)),
+                }
+                // do it again
+                window.request_redraw();
+            }
             _ => (),
         }
     }
 }
 
-pub fn run() -> anyhow::Result<()> {
+pub fn run(initial_scene: Box<dyn Scene>) -> anyhow::Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
-    event_loop.run_app(&mut Engine::new())?;
+    event_loop.run_app(&mut Engine::new(initial_scene))?;
     Ok(())
 }

@@ -8,6 +8,7 @@ anyhow = "1.0.103"
 common = { path = "../common" }
 icengine = { path = "../icengine" }
 render = { path = "../render" }
+wgpu = "30.0.0"
 
 [lints]
 workspace = true

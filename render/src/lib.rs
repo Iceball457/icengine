@@ -66,6 +66,10 @@ impl<'w> Server<'w> {
         })
     }
 
+    pub fn database_mut(&mut self) -> &mut storage::Database {
+        &mut self.database
+    }
+
     pub fn resize(&mut self, size: common::texture::FixedSize) {
         if size.x > 0 && size.y > 0 {
             self.config.width = size.x;
