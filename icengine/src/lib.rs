@@ -1,6 +1,12 @@
+use common::error::EngineError;
 use std::sync::Arc;
 
-use common::error::EngineError;
+pub mod scene;
+pub use scene::*;
+
+pub struct EngineCtl<'frame> {
+    render_server: &'frame mut render::Server<'static>,
+}
 
 pub struct Engine {
     window: Option<Arc<winit::window::Window>>,
