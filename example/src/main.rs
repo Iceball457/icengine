@@ -9,6 +9,7 @@ impl icengine::Scene for MainScene {
         let rs = engine.render_server_mut();
         let mesh = *render::constants::TEST_QUAD;
         let mesh = rs.create_mesh(mesh);
+        let pipeline = engine.render_server_mut().standard_shader_unlit();
         let model = rs.create_model(mesh, pipeline);
         let instance = rs.create_instance(model);
         // rs.instance_set_transforms(instance, &[])

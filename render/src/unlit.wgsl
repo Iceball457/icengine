@@ -35,7 +35,7 @@ fn vs_unlit(
     model_matrix: ModelMatrix,
 ) -> VertexOutput {
     var output: VertexOutput;
-    output.clip_position = camera * construct_matrix(model_matrix) * vec4<f32>(model.position, 1.0);
+    output.clip_position = camera * construct_matrix(model_matrix) * vec4<f32>(vertex.position, 1.0);
     output.uv = vertex.uv;
     output.color = vertex.color;
     return output;

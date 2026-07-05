@@ -9,6 +9,14 @@ pub struct Server<'window> {
     database: storage::Database,
 }
 
+impl std::ops::Deref for Server<'_> {
+    type Target = storage::Database;
+
+    fn deref(&self) -> &Self::Target {
+        &self.database
+    }
+}
+
 impl<'w> Server<'w> {
     pub async fn new(
         window: impl Into<wgpu::SurfaceTarget<'w>>,
@@ -169,5 +177,58 @@ impl<'w> Server<'w> {
 
     fn configure_surface(&self) {
         self.surface.configure(&self.device, &self.config);
+    }
+
+    pub fn standard_shader_unlit(&mut self) -> storage::Rid<wgpu::RenderPipeline> {
+        let shader = self
+            .device
+            .create_shader_module(wgpu::include_wgsl!("unlit.wgsl"));
+        let layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Standard Unlit Shader Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Standard Unlit Shader Pipeline"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_unlit"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_unlit"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: self.config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::all(),
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            });
+        self.database.create_pipeline(pipeline)
     }
 }

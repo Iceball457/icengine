@@ -8,11 +8,11 @@ mod command;
 pub use command::*;
 
 pub struct EngineCtl<'frame> {
-    render_server: &'frame mut render::storage::Database,
+    render_server: &'frame mut render::Server<'frame>,
 }
 
-impl EngineCtl<'_> {
-    pub fn render_server_mut(&mut self) -> &mut render::storage::Database {
+impl<'frame> EngineCtl<'frame> {
+    pub fn render_server_mut(&'frame mut self) -> &'frame mut render::Server {
         self.render_server
     }
 }
@@ -131,9 +131,7 @@ impl winit::application::ApplicationHandler for Engine {
                         }
                         Command::SetScene(scene) => {
                             self.active_scene = scene;
-                            self.active_scene.start(EngineCtl {
-                                render_server: render_server.database_mut(),
-                            });
+                            self.active_scene.start(EngineCtl { render_server });
                         }
                     }
                 }
