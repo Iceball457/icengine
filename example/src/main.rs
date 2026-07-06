@@ -1,7 +1,7 @@
 use render::camera;
 
 fn main() -> anyhow::Result<()> {
-    icengine::run(Box::new(MainScene))
+    icengine::run(Box::new(MainScene), 60.0)
 }
 
 struct MainScene;
@@ -42,15 +42,9 @@ impl icengine::Scene for MainScene {
         }));
     }
 
-    fn display(&mut self, _delta: std::time::Duration, _engine: icengine::EngineCtl) {
-        todo!()
-    }
+    fn display(&mut self, _delta: std::time::Duration, _engine: icengine::EngineCtl) {}
 
-    fn tick(&mut self, _delta: std::time::Duration, _engine: icengine::EngineCtl) {
-        todo!()
-    }
+    fn tick(&mut self, _delta: std::time::Duration, _engine: icengine::EngineCtl) {}
 
-    fn end(&mut self, _engine: icengine::EngineCtl) {
-        todo!()
-    }
+    fn end(&mut self, _engine: icengine::EngineCtl) {}
 }

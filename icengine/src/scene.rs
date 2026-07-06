@@ -1,8 +1,9 @@
+#[allow(unused_variables)]
 pub trait Scene {
-    fn start(&mut self, engine: super::EngineCtl);
-    fn display(&mut self, delta: std::time::Duration, engine: super::EngineCtl);
-    fn tick(&mut self, delta: std::time::Duration, engine: super::EngineCtl);
-    fn end(&mut self, engine: super::EngineCtl);
+    fn start(&mut self, engine: super::EngineCtl) {}
+    fn display(&mut self, delta: std::time::Duration, engine: super::EngineCtl) {}
+    fn tick(&mut self, delta: std::time::Duration, engine: super::EngineCtl) {}
+    fn end(&mut self, engine: super::EngineCtl) {}
 }
 
 // impl Scene {

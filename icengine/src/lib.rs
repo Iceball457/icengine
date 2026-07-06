@@ -23,16 +23,22 @@ pub struct Engine {
     render_server: Option<render::Server>,
     commands: Vec<Command>,
     errors: Vec<Error>,
+    display_timestamp: std::time::Instant,
+    tick_timestamp: std::time::Instant,
+    tick_time: std::time::Duration,
 }
 
 impl Engine {
-    fn new(active_scene: Box<dyn Scene>) -> Self {
+    fn new(active_scene: Box<dyn Scene>, tick_time: std::time::Duration) -> Self {
         Self {
             window: None,
             active_scene,
             render_server: None,
             commands: vec![],
             errors: vec![],
+            display_timestamp: std::time::Instant::now(),
+            tick_timestamp: std::time::Instant::now(),
+            tick_time,
         }
     }
 }
@@ -116,15 +122,27 @@ impl winit::application::ApplicationHandler for Engine {
                             return;
                         }
                         Command::SetScene(scene) => {
+                            self.active_scene.end(EngineCtl { render_server });
                             self.active_scene = scene;
                             self.active_scene.start(EngineCtl { render_server });
+                        }
+                        Command::SetTickrate(tick_rate) => {
+                            self.tick_time = std::time::Duration::from_secs_f32(tick_rate.recip());
                         }
                     }
                 }
                 // check time, tick if enough time has elapsed
-
+                let tick_delta = self.tick_timestamp.elapsed();
+                if tick_delta > self.tick_time {
+                    self.tick_timestamp = std::time::Instant::now();
+                    self.active_scene
+                        .tick(tick_delta, EngineCtl { render_server });
+                }
                 // display
-
+                let display_delta = self.display_timestamp.elapsed();
+                self.display_timestamp = std::time::Instant::now();
+                self.active_scene
+                    .display(display_delta, EngineCtl { render_server });
                 // render
                 match render_server.render() {
                     Ok(()) => (),
@@ -143,8 +161,11 @@ impl winit::application::ApplicationHandler for Engine {
 /// During setup, can error while gathering devices like GPUs.
 /// During the core loop, errors only when the engine ancounters a fatal error.
 /// This can be because a device was lost, or because the user's code submitted an error marked fatal.
-pub fn run(initial_scene: Box<dyn Scene>) -> anyhow::Result<()> {
+pub fn run(initial_scene: Box<dyn Scene>, tick_rate: f32) -> anyhow::Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
-    event_loop.run_app(&mut Engine::new(initial_scene))?;
+    event_loop.run_app(&mut Engine::new(
+        initial_scene,
+        std::time::Duration::from_secs_f32(tick_rate.recip()),
+    ))?;
     Ok(())
 }
