@@ -1,16 +1,10 @@
-@group(1) @binding(0)
+@group(0) @binding(0)
 var<uniform> camera: mat4x4<f32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) color: vec3<f32>,
-}
-
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-    @location(1) color: vec3<f32>,
 }
 
 struct ModelMatrix {
@@ -20,7 +14,13 @@ struct ModelMatrix {
     @location(8) model_mat_d: vec4<f32>,
 }
 
-fn construct_matrix(matrix: ModelMatrix) {
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec3<f32>,
+}
+
+fn construct_matrix(matrix: ModelMatrix) -> mat4x4<f32>{
     return mat4x4<f32>(
         matrix.model_mat_a,
         matrix.model_mat_b,
@@ -43,7 +43,7 @@ fn vs_unlit(
 
 @fragment
 fn fs_unlit(
-    in: VertexInput,
+    in: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    return in.color;
+    return vec4<f32>(in.color, 1.0);
 }

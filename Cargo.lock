@@ -343,6 +343,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "glam",
 ]
 
@@ -536,6 +537,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "common",
+ "glam",
  "icengine",
  "render",
  "wgpu 30.0.0",

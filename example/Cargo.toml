@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.103"
 common = { path = "../common" }
+glam = "0.33.2"
 icengine = { path = "../icengine" }
 render = { path = "../render" }
 wgpu = "30.0.0"

@@ -1,15 +1,24 @@
+pub mod camera;
+pub use camera::Camera;
 pub mod constants;
+pub mod data;
 pub mod storage;
 
-pub struct Server<'window> {
-    surface: wgpu::Surface<'window>,
+const CAMERA_BG_INDEX: u32 = 0;
+
+pub struct Server {
+    camera: Camera,
+    projection: camera::Projection,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
+    surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     database: storage::Database,
 }
 
-impl std::ops::Deref for Server<'_> {
+impl std::ops::Deref for Server {
     type Target = storage::Database;
 
     fn deref(&self) -> &Self::Target {
@@ -17,9 +26,18 @@ impl std::ops::Deref for Server<'_> {
     }
 }
 
-impl<'w> Server<'w> {
+impl std::ops::DerefMut for Server {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.database
+    }
+}
+
+impl Server {
+    /// # Errors
+    ///
+    /// Errors if the adapter or device cannot be aqcuired.
     pub async fn new(
-        window: impl Into<wgpu::SurfaceTarget<'w>>,
+        window: impl Into<wgpu::SurfaceTarget<'static>>,
         size: common::texture::FixedSize,
     ) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -65,7 +83,33 @@ impl<'w> Server<'w> {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
+
+        #[allow(clippy::cast_precision_loss)]
+        let aspect = config.width as f32 / config.height as f32;
+        let camera = Camera::new(aspect);
+        let camera_buffer = {
+            use wgpu::util::DeviceExt;
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Camera Buffer"),
+                contents: &camera.to_gpu(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            })
+        };
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&camera::BIND_GROUP_LAYOUT_DESCRIPTOR);
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera Bind Group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
         Ok(Self {
+            camera,
+            projection: camera::Projection::default(),
+            camera_buffer,
+            camera_bind_group,
             surface,
             device,
             queue,
@@ -74,8 +118,13 @@ impl<'w> Server<'w> {
         })
     }
 
-    pub fn database_mut(&mut self) -> &mut storage::Database {
+    pub const fn database_mut(&mut self) -> &mut storage::Database {
         &mut self.database
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    pub fn aspect(&self) -> f32 {
+        self.config.width as f32 / self.config.height as f32
     }
 
     pub fn resize(&mut self, size: common::texture::FixedSize) {
@@ -83,9 +132,23 @@ impl<'w> Server<'w> {
             self.config.width = size.x;
             self.config.height = size.y;
             self.configure_surface();
+            self.camera.set_projection(self.projection, self.aspect());
         }
     }
 
+    pub fn camera_set_view(&mut self, view: camera::View) {
+        self.camera.set_view(view);
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    pub fn camera_set_projection(&mut self, proj: camera::Projection) {
+        let aspect = self.config.height as f32 / self.config.width as f32;
+        self.camera.set_projection(proj, aspect);
+    }
+
+    /// # Errors
+    ///
+    /// Bails if the device has been lost!
     pub fn render(&mut self) -> anyhow::Result<()> {
         let output = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
@@ -114,6 +177,9 @@ impl<'w> Server<'w> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+        // Write to the global uniform buffers with this frame's info
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, &self.camera.to_gpu());
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -136,6 +202,7 @@ impl<'w> Server<'w> {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+            render_pass.set_bind_group(CAMERA_BG_INDEX, &self.camera_bind_group, &[]);
             self.draw_objects(&mut render_pass);
         }
 
@@ -145,11 +212,34 @@ impl<'w> Server<'w> {
     }
 
     fn draw_objects(&self, render_pass: &mut wgpu::RenderPass) {
+        println!(
+            "There are {} objects to be drawn.",
+            self.database.instances_iter().count()
+        );
         for instance in self.database.instances_iter() {
+            println!("{instance:#?}");
             let model = self.database.get_model(instance.model());
             let mesh = self.database.get_mesh(model.mesh());
             let pipeline = self.database.get_pipeline(model.pipeline());
             render_pass.set_pipeline(pipeline);
+            let vertex_buffer = {
+                use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(mesh.vertices()),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
+            };
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            let instance_buffer = {
+                use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                self.device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Instance Buffer"),
+                    contents: bytemuck::cast_slice(instance.transforms()),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
+            };
+            render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
             match mesh.indices() {
                 Some(indices) => {
                     let index_buffer = {
@@ -161,12 +251,14 @@ impl<'w> Server<'w> {
                         })
                     };
                     render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    #[allow(clippy::cast_possible_truncation)]
                     render_pass.draw_indexed(
                         0..indices.len() as u32,
                         0,
                         0..instance.transforms().len() as u32,
-                    )
+                    );
                 }
+                #[allow(clippy::cast_possible_truncation)]
                 None => render_pass.draw(
                     0..mesh.vertices().len() as u32,
                     0..instance.transforms().len() as u32,
@@ -183,11 +275,14 @@ impl<'w> Server<'w> {
         let shader = self
             .device
             .create_shader_module(wgpu::include_wgsl!("unlit.wgsl"));
+        let camera_layout = self
+            .device
+            .create_bind_group_layout(&camera::BIND_GROUP_LAYOUT_DESCRIPTOR);
         let layout = self
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Standard Unlit Shader Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[Some(&camera_layout)],
                 immediate_size: 0,
             });
         let pipeline = self
@@ -199,7 +294,7 @@ impl<'w> Server<'w> {
                     module: &shader,
                     entry_point: Some("vs_unlit"),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &[],
+                    buffers: &[data::VERTEX_BUFFER_LAYOUT, data::INSTANCE_BUFFER_LAYOUT],
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,

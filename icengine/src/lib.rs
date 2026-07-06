@@ -7,12 +7,12 @@ pub use scene::*;
 mod command;
 pub use command::*;
 
-pub struct EngineCtl<'frame> {
-    render_server: &'frame mut render::Server<'frame>,
+pub struct EngineCtl<'a> {
+    render_server: &'a mut render::Server,
 }
 
-impl<'frame> EngineCtl<'frame> {
-    pub fn render_server_mut(&'frame mut self) -> &'frame mut render::Server {
+impl EngineCtl<'_> {
+    pub const fn render_server_mut(&mut self) -> &mut render::Server {
         self.render_server
     }
 }
@@ -20,7 +20,7 @@ impl<'frame> EngineCtl<'frame> {
 pub struct Engine {
     window: Option<Arc<winit::window::Window>>,
     active_scene: Box<dyn Scene>,
-    render_server: Option<render::Server<'static>>,
+    render_server: Option<render::Server>,
     commands: Vec<Command>,
     errors: Vec<Error>,
 }
@@ -59,12 +59,15 @@ impl winit::application::ApplicationHandler for Engine {
                 }
             };
         self.window = Some(window);
+        self.active_scene.start(EngineCtl {
+            render_server: self.render_server.as_mut().unwrap(),
+        });
     }
 
     fn window_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
         for error in self.errors.drain(..) {
@@ -86,7 +89,6 @@ impl winit::application::ApplicationHandler for Engine {
             }
             winit::event::WindowEvent::CloseRequested => {
                 event_loop.exit();
-                return;
             }
             winit::event::WindowEvent::KeyboardInput {
                 event:
@@ -105,22 +107,6 @@ impl winit::application::ApplicationHandler for Engine {
                     event_loop.exit();
                 }
             }
-            winit::event::WindowEvent::CursorMoved {
-                device_id,
-                position,
-            } => (),
-            winit::event::WindowEvent::CursorEntered { device_id } => (),
-            winit::event::WindowEvent::CursorLeft { device_id } => (),
-            winit::event::WindowEvent::MouseWheel {
-                device_id,
-                delta,
-                phase,
-            } => (),
-            winit::event::WindowEvent::MouseInput {
-                device_id,
-                state,
-                button,
-            } => (),
             winit::event::WindowEvent::RedrawRequested => {
                 // respond to all engine commands
                 for command in self.commands.drain(..) {
@@ -152,6 +138,11 @@ impl winit::application::ApplicationHandler for Engine {
     }
 }
 
+/// # Errors
+///
+/// During setup, can error while gathering devices like GPUs.
+/// During the core loop, errors only when the engine ancounters a fatal error.
+/// This can be because a device was lost, or because the user's code submitted an error marked fatal.
 pub fn run(initial_scene: Box<dyn Scene>) -> anyhow::Result<()> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     event_loop.run_app(&mut Engine::new(initial_scene))?;

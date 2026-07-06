@@ -1,3 +1,5 @@
+use render::camera;
+
 fn main() -> anyhow::Result<()> {
     icengine::run(Box::new(MainScene))
 }
@@ -5,25 +7,43 @@ fn main() -> anyhow::Result<()> {
 struct MainScene;
 
 impl icengine::Scene for MainScene {
-    fn start(&mut self, engine: icengine::EngineCtl) {
+    fn start(&mut self, mut engine: icengine::EngineCtl) {
         let rs = engine.render_server_mut();
-        let mesh = *render::constants::TEST_QUAD;
+        let mesh = render::constants::test_quad();
         let mesh = rs.create_mesh(mesh);
-        let pipeline = engine.render_server_mut().standard_shader_unlit();
+        let pipeline = rs.standard_shader_unlit();
         let model = rs.create_model(mesh, pipeline);
         let instance = rs.create_instance(model);
-        // rs.instance_set_transforms(instance, &[])
+        rs.object_set_transforms(
+            instance,
+            vec![
+                common::math::Matrix(glam::Mat4::IDENTITY),
+                common::math::Matrix(glam::Mat4::from_mat3_translation(
+                    glam::Mat3::IDENTITY,
+                    glam::Vec3::new(0.0, 2.0, 0.0),
+                )),
+            ],
+        );
+        rs.camera_set_view(camera::View {
+            eye: glam::Vec3::new(0.0, 0.0, 5.0),
+            dir: glam::Vec3::new(0.0, 0.0, -1.0),
+            up: glam::Vec3::new(0.0, 1.0, 0.0),
+        });
+        rs.camera_set_projection(camera::Projection::Perspective(camera::Perspective {
+            fovy: 90.0,
+            near: 0.01,
+        }));
     }
 
-    fn display(&mut self, delta: std::time::Duration, engine: icengine::EngineCtl) {
+    fn display(&mut self, _delta: std::time::Duration, _engine: icengine::EngineCtl) {
         todo!()
     }
 
-    fn tick(&mut self, delta: std::time::Duration, engine: icengine::EngineCtl) {
+    fn tick(&mut self, _delta: std::time::Duration, _engine: icengine::EngineCtl) {
         todo!()
     }
 
-    fn end(&mut self, engine: icengine::EngineCtl) {
+    fn end(&mut self, _engine: icengine::EngineCtl) {
         todo!()
     }
 }

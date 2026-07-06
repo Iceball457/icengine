@@ -1,14 +1,20 @@
-pub struct Instance {
+use crate::data::Vertex;
+use common::math::Matrix;
+
+#[derive(Clone, Debug)]
+pub struct Object {
     model: Rid<Model>,
-    transforms: Vec<glam::Affine3A>,
+    instances: Vec<Matrix>,
 }
 
-impl Instance {
-    pub fn model(&self) -> Rid<Model> {
+impl Object {
+    #[must_use]
+    pub const fn model(&self) -> Rid<Model> {
         self.model
     }
-    pub fn transforms(&self) -> &[glam::Affine3A] {
-        &self.transforms
+    #[must_use]
+    pub fn transforms(&self) -> &[Matrix] {
+        &self.instances
     }
 }
 
@@ -18,10 +24,12 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn mesh(&self) -> Rid<Mesh> {
+    #[must_use]
+    pub const fn mesh(&self) -> Rid<Mesh> {
         self.mesh
     }
-    pub fn pipeline(&self) -> Rid<wgpu::RenderPipeline> {
+    #[must_use]
+    pub const fn pipeline(&self) -> Rid<wgpu::RenderPipeline> {
         self.pipeline
     }
 }
@@ -33,34 +41,18 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub(crate) fn new(vertices: Vec<Vertex>, indices: Option<Vec<u16>>) -> Self {
+    pub(crate) const fn new(vertices: Vec<Vertex>, indices: Option<Vec<u16>>) -> Self {
         Self { vertices, indices }
     }
 
+    #[must_use]
     pub fn vertices(&self) -> &[Vertex] {
         &self.vertices
     }
 
-    pub fn indices(&self) -> Option<&Vec<u16>> {
-        self.indices.as_ref()
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Vertex {
-    position: [f32; 3],
-    uv: [f32; 2],
-    color: [f32; 3],
-}
-
-impl Vertex {
-    pub const fn new(position: [f32; 3], uv: [f32; 2], color: [f32; 3]) -> Self {
-        Self {
-            position,
-            uv,
-            color,
-        }
+    #[must_use]
+    pub fn indices(&self) -> Option<&[u16]> {
+        self.indices.as_deref()
     }
 }
 
@@ -70,8 +62,14 @@ pub struct Rid<T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
+impl<T> std::fmt::Debug for Rid<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Rid").field("index", &self.index).finish()
+    }
+}
+
 impl<T> Rid<T> {
-    fn new(index: usize) -> Self {
+    const fn new(index: usize) -> Self {
         Self {
             index,
             _phantom: std::marker::PhantomData,
@@ -88,14 +86,15 @@ impl<T> Clone for Rid<T> {
 impl<T> Copy for Rid<T> {}
 
 pub struct Database {
-    instances: Vec<Instance>,
+    instances: Vec<Object>,
     models: Vec<Model>,
     meshes: Vec<Mesh>,
     pipelines: Vec<wgpu::RenderPipeline>,
 }
 
 impl Database {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             instances: vec![],
             models: vec![],
@@ -104,11 +103,11 @@ impl Database {
         }
     }
 
-    pub fn create_instance(&mut self, model: Rid<Model>) -> Rid<Instance> {
-        let output = Rid::<Instance>::new(self.instances.len());
-        self.instances.push(Instance {
+    pub fn create_instance(&mut self, model: Rid<Model>) -> Rid<Object> {
+        let output = Rid::<Object>::new(self.instances.len());
+        self.instances.push(Object {
             model,
-            transforms: vec![],
+            instances: vec![],
         });
         output
     }
@@ -135,16 +134,18 @@ impl Database {
         output
     }
 
-    pub fn get_instance(&self, instance: Rid<Instance>) -> &Instance {
+    #[must_use]
+    pub fn get_instance(&self, instance: Rid<Object>) -> &Object {
         &self.instances[instance.index]
     }
-    pub fn get_instance_mut(&mut self, instance: Rid<Instance>) -> &mut Instance {
+    pub fn get_instance_mut(&mut self, instance: Rid<Object>) -> &mut Object {
         &mut self.instances[instance.index]
     }
-    pub fn instances_iter(&self) -> impl Iterator<Item = &Instance> {
+    pub fn instances_iter(&self) -> impl Iterator<Item = &Object> {
         self.instances.iter()
     }
 
+    #[must_use]
     pub fn get_model(&self, model: Rid<Model>) -> &Model {
         &self.models[model.index]
     }
@@ -152,6 +153,7 @@ impl Database {
         &mut self.models[model.index]
     }
 
+    #[must_use]
     pub fn get_mesh(&self, mesh: Rid<Mesh>) -> &Mesh {
         &self.meshes[mesh.index]
     }
@@ -159,6 +161,7 @@ impl Database {
         &mut self.meshes[mesh.index]
     }
 
+    #[must_use]
     pub fn get_pipeline(&self, pipeline: Rid<wgpu::RenderPipeline>) -> &wgpu::RenderPipeline {
         &self.pipelines[pipeline.index]
     }
@@ -169,15 +172,15 @@ impl Database {
         &mut self.pipelines[pipeline.index]
     }
 
-    pub fn free_model(&self, model: Rid<Model>) {
+    pub fn free_model(&self, _model: Rid<Model>) {
         eprintln!("Not implemented");
     }
 
-    pub fn free_mesh(&mut self, mesh: Rid<Mesh>) {
+    pub fn free_mesh(&mut self, _mesh: Rid<Mesh>) {
         eprintln!("Not implemented");
     }
 
-    pub fn free_pipeline(&mut self, pipeline: Rid<wgpu::RenderPipeline>) {
+    pub fn free_pipeline(&mut self, _pipeline: Rid<wgpu::RenderPipeline>) {
         eprintln!("Not implemented");
     }
 
@@ -189,5 +192,16 @@ impl Database {
     pub fn model_set_pipeline(&mut self, model: Rid<Model>, pipeline: Rid<wgpu::RenderPipeline>) {
         let model = self.get_model_mut(model);
         model.pipeline = pipeline;
+    }
+
+    pub fn object_set_transforms(&mut self, instance: Rid<Object>, transforms: Vec<Matrix>) {
+        let instance = self.get_instance_mut(instance);
+        instance.instances = transforms;
+    }
+}
+
+impl Default for Database {
+    fn default() -> Self {
+        Self::new()
     }
 }
