@@ -9,11 +9,18 @@ struct MainScene;
 impl icengine::Scene for MainScene {
     fn start(&mut self, mut engine: icengine::EngineCtl) {
         let rs = engine.render_server_mut();
-        let mesh = render::constants::test_quad();
-        let mesh = rs.create_mesh(mesh);
-        let pipeline = rs.standard_shader_unlit();
-        let model = rs.create_model(mesh, pipeline);
-        let instance = rs.create_instance(model);
+        let mesh = rs.create_mesh(render::constants::test_quad());
+        let texture = render::texture::Texture::new(
+            rs,
+            Some("Example Texture"),
+            (2, 2),
+            &[
+                0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+            ],
+        );
+        let material = render::material::unlit_material(rs, &texture, [1.0, 1.0, 1.0, 1.0]);
+        let model = rs.create_model(vec![render::storage::Surface::new(mesh, material)]);
+        let instance = rs.create_object(model);
         rs.object_set_transforms(
             instance,
             vec![

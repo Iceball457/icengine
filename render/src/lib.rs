@@ -2,7 +2,9 @@ pub mod camera;
 pub use camera::Camera;
 pub mod constants;
 pub mod data;
+pub mod material;
 pub mod storage;
+pub mod texture;
 
 const CAMERA_BG_INDEX: u32 = 0;
 
@@ -16,6 +18,7 @@ pub struct Server {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     database: storage::Database,
+    standard_shader_unlit: Option<storage::Rid<wgpu::RenderPipeline>>,
 }
 
 impl std::ops::Deref for Server {
@@ -115,6 +118,7 @@ impl Server {
             queue,
             config,
             database: storage::Database::new(),
+            standard_shader_unlit: None,
         })
     }
 
@@ -203,6 +207,7 @@ impl Server {
                 multiview_mask: None,
             });
             render_pass.set_bind_group(CAMERA_BG_INDEX, &self.camera_bind_group, &[]);
+
             self.draw_objects(&mut render_pass);
         }
 
@@ -214,55 +219,59 @@ impl Server {
     fn draw_objects(&self, render_pass: &mut wgpu::RenderPass) {
         println!(
             "There are {} objects to be drawn.",
-            self.database.instances_iter().count()
+            self.database.objects_iter().count()
         );
-        for instance in self.database.instances_iter() {
-            println!("{instance:#?}");
+        for instance in self.database.objects_iter() {
             let model = self.database.get_model(instance.model());
-            let mesh = self.database.get_mesh(model.mesh());
-            let pipeline = self.database.get_pipeline(model.pipeline());
-            render_pass.set_pipeline(pipeline);
-            let vertex_buffer = {
-                use wgpu::util::{BufferInitDescriptor, DeviceExt};
-                self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(mesh.vertices()),
-                    usage: wgpu::BufferUsages::VERTEX,
-                })
-            };
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            let instance_buffer = {
-                use wgpu::util::{BufferInitDescriptor, DeviceExt};
-                self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Instance Buffer"),
-                    contents: bytemuck::cast_slice(instance.transforms()),
-                    usage: wgpu::BufferUsages::VERTEX,
-                })
-            };
-            render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
-            match mesh.indices() {
-                Some(indices) => {
-                    let index_buffer = {
-                        use wgpu::util::{BufferInitDescriptor, DeviceExt};
-                        self.device.create_buffer_init(&BufferInitDescriptor {
-                            label: Some("Index Buffer"),
-                            contents: bytemuck::cast_slice(indices),
-                            usage: wgpu::BufferUsages::INDEX,
-                        })
-                    };
-                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            for surface in model.surfaces_iter() {
+                let mesh = self.database.get_mesh(surface.mesh());
+                let material = self.database.get_material(surface.material());
+                let pipeline = self.database.get_pipeline(material.pipeline());
+                render_pass.set_pipeline(pipeline);
+                material.setup(render_pass);
+                let vertex_buffer = {
+                    use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                    self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Vertex Buffer"),
+                        contents: bytemuck::cast_slice(mesh.vertices()),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    })
+                };
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                let instance_buffer = {
+                    use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                    self.device.create_buffer_init(&BufferInitDescriptor {
+                        label: Some("Instance Buffer"),
+                        contents: bytemuck::cast_slice(instance.transforms()),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    })
+                };
+                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                match mesh.indices() {
+                    Some(indices) => {
+                        let index_buffer = {
+                            use wgpu::util::{BufferInitDescriptor, DeviceExt};
+                            self.device.create_buffer_init(&BufferInitDescriptor {
+                                label: Some("Index Buffer"),
+                                contents: bytemuck::cast_slice(indices),
+                                usage: wgpu::BufferUsages::INDEX,
+                            })
+                        };
+                        render_pass
+                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        #[allow(clippy::cast_possible_truncation)]
+                        render_pass.draw_indexed(
+                            0..indices.len() as u32,
+                            0,
+                            0..instance.transforms().len() as u32,
+                        );
+                    }
                     #[allow(clippy::cast_possible_truncation)]
-                    render_pass.draw_indexed(
-                        0..indices.len() as u32,
-                        0,
+                    None => render_pass.draw(
+                        0..mesh.vertices().len() as u32,
                         0..instance.transforms().len() as u32,
-                    );
+                    ),
                 }
-                #[allow(clippy::cast_possible_truncation)]
-                None => render_pass.draw(
-                    0..mesh.vertices().len() as u32,
-                    0..instance.transforms().len() as u32,
-                ),
             }
         }
     }
@@ -272,17 +281,23 @@ impl Server {
     }
 
     pub fn standard_shader_unlit(&mut self) -> storage::Rid<wgpu::RenderPipeline> {
+        if let Some(standard_shader_unlit) = self.standard_shader_unlit {
+            return standard_shader_unlit;
+        }
         let shader = self
             .device
             .create_shader_module(wgpu::include_wgsl!("unlit.wgsl"));
         let camera_layout = self
             .device
             .create_bind_group_layout(&camera::BIND_GROUP_LAYOUT_DESCRIPTOR);
+        let uniforms_layout = self
+            .device
+            .create_bind_group_layout(&material::UNLIT_BIND_GROUP_LAYOUT_DESCRIPTOR);
         let layout = self
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Standard Unlit Shader Pipeline Layout"),
-                bind_group_layouts: &[Some(&camera_layout)],
+                bind_group_layouts: &[Some(&camera_layout), Some(&uniforms_layout)],
                 immediate_size: 0,
             });
         let pipeline = self
@@ -324,6 +339,8 @@ impl Server {
                 multiview_mask: None,
                 cache: None,
             });
-        self.database.create_pipeline(pipeline)
+        self.standard_shader_unlit = Some(self.database.create_pipeline(pipeline));
+        // SAFETY: We literally just put this here.
+        unsafe { self.standard_shader_unlit.unwrap_unchecked() }
     }
 }

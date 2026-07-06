@@ -1,10 +1,10 @@
-use crate::data::Vertex;
+use crate::{data::Vertex, material::Material, texture::Texture};
 use common::math::Matrix;
 
 #[derive(Clone, Debug)]
 pub struct Object {
     model: Rid<Model>,
-    instances: Vec<Matrix>,
+    transforms: Vec<Matrix>,
 }
 
 impl Object {
@@ -14,28 +14,48 @@ impl Object {
     }
     #[must_use]
     pub fn transforms(&self) -> &[Matrix] {
-        &self.instances
+        &self.transforms
     }
 }
 
 pub struct Model {
-    mesh: Rid<Mesh>,
-    pipeline: Rid<wgpu::RenderPipeline>,
+    surfaces: Vec<Surface>,
 }
 
 impl Model {
+    #[must_use]
+    pub fn get_surface<I>(&self, index: I) -> Option<&I::Output>
+    where
+        I: std::slice::SliceIndex<[Surface]>,
+    {
+        self.surfaces.get(index)
+    }
+    pub fn surfaces_iter(&self) -> impl Iterator<Item = &Surface> {
+        self.surfaces.iter()
+    }
+}
+
+pub struct Surface {
+    mesh: Rid<Mesh>,
+    material: Rid<Material>,
+}
+
+impl Surface {
+    #[must_use]
+    pub const fn new(mesh: Rid<Mesh>, material: Rid<Material>) -> Self {
+        Self { mesh, material }
+    }
     #[must_use]
     pub const fn mesh(&self) -> Rid<Mesh> {
         self.mesh
     }
     #[must_use]
-    pub const fn pipeline(&self) -> Rid<wgpu::RenderPipeline> {
-        self.pipeline
+    pub const fn material(&self) -> Rid<Material> {
+        self.material
     }
 }
 
 pub struct Mesh {
-    // Meshes may want to support multiple surfaces, each with their own pipeline.
     vertices: Vec<Vertex>,
     indices: Option<Vec<u16>>,
 }
@@ -89,36 +109,44 @@ pub struct Database {
     instances: Vec<Object>,
     models: Vec<Model>,
     meshes: Vec<Mesh>,
+    materials: Vec<Material>,
     pipelines: Vec<wgpu::RenderPipeline>,
+    textures: Vec<super::texture::Texture>,
 }
 
 impl Database {
+    // # Instantiation
+
     #[must_use]
     pub const fn new() -> Self {
         Self {
             instances: vec![],
             models: vec![],
             meshes: vec![],
+            materials: vec![],
             pipelines: vec![],
+            textures: vec![],
         }
     }
 
-    pub fn create_instance(&mut self, model: Rid<Model>) -> Rid<Object> {
+    // # Field Access
+
+    // # Public API
+
+    // ## Create resources
+
+    pub fn create_object(&mut self, model: Rid<Model>) -> Rid<Object> {
         let output = Rid::<Object>::new(self.instances.len());
         self.instances.push(Object {
             model,
-            instances: vec![],
+            transforms: vec![],
         });
         output
     }
 
-    pub fn create_model(
-        &mut self,
-        mesh: Rid<Mesh>,
-        pipeline: Rid<wgpu::RenderPipeline>,
-    ) -> Rid<Model> {
+    pub fn create_model(&mut self, surfaces: Vec<Surface>) -> Rid<Model> {
         let output = Rid::<Model>::new(self.models.len());
-        self.models.push(Model { mesh, pipeline });
+        self.models.push(Model { surfaces });
         output
     }
 
@@ -134,14 +162,28 @@ impl Database {
         output
     }
 
+    pub fn create_material(&mut self, material: Material) -> Rid<Material> {
+        let output = Rid::<Material>::new(self.materials.len());
+        self.materials.push(material);
+        output
+    }
+
+    pub fn create_texture(&mut self, texture: Texture) -> Rid<Texture> {
+        let output = Rid::<Texture>::new(self.textures.len());
+        self.textures.push(texture);
+        output
+    }
+
+    // # Resource Access
+
     #[must_use]
-    pub fn get_instance(&self, instance: Rid<Object>) -> &Object {
+    pub fn get_object(&self, instance: Rid<Object>) -> &Object {
         &self.instances[instance.index]
     }
-    pub fn get_instance_mut(&mut self, instance: Rid<Object>) -> &mut Object {
+    pub fn get_object_mut(&mut self, instance: Rid<Object>) -> &mut Object {
         &mut self.instances[instance.index]
     }
-    pub fn instances_iter(&self) -> impl Iterator<Item = &Object> {
+    pub fn objects_iter(&self) -> impl Iterator<Item = &Object> {
         self.instances.iter()
     }
 
@@ -162,6 +204,14 @@ impl Database {
     }
 
     #[must_use]
+    pub fn get_material(&self, material: Rid<Material>) -> &Material {
+        &self.materials[material.index]
+    }
+    pub fn get_material_mut(&mut self, material: Rid<Material>) -> &mut Material {
+        &mut self.materials[material.index]
+    }
+
+    #[must_use]
     pub fn get_pipeline(&self, pipeline: Rid<wgpu::RenderPipeline>) -> &wgpu::RenderPipeline {
         &self.pipelines[pipeline.index]
     }
@@ -171,6 +221,8 @@ impl Database {
     ) -> &mut wgpu::RenderPipeline {
         &mut self.pipelines[pipeline.index]
     }
+
+    // # Resource Disposal
 
     pub fn free_model(&self, _model: Rid<Model>) {
         eprintln!("Not implemented");
@@ -184,19 +236,42 @@ impl Database {
         eprintln!("Not implemented");
     }
 
-    pub fn model_set_mesh(&mut self, model: Rid<Model>, mesh: Rid<Mesh>) {
-        let model = self.get_model_mut(model);
-        model.mesh = mesh;
-    }
-
-    pub fn model_set_pipeline(&mut self, model: Rid<Model>, pipeline: Rid<wgpu::RenderPipeline>) {
-        let model = self.get_model_mut(model);
-        model.pipeline = pipeline;
-    }
+    // # Object APIs
 
     pub fn object_set_transforms(&mut self, instance: Rid<Object>, transforms: Vec<Matrix>) {
-        let instance = self.get_instance_mut(instance);
-        instance.instances = transforms;
+        let instance = self.get_object_mut(instance);
+        instance.transforms = transforms;
+    }
+
+    // # Model APIs
+
+    pub fn model_add_surface(
+        &mut self,
+        model: Rid<Model>,
+        mesh: Rid<Mesh>,
+        material: Rid<Material>,
+    ) {
+        let model = self.get_model_mut(model);
+        model.surfaces.push(Surface { mesh, material });
+    }
+
+    pub fn model_set_surface(
+        &mut self,
+        model: Rid<Model>,
+        surface_index: usize,
+        mesh: Rid<Mesh>,
+        material: Rid<Material>,
+    ) {
+        let model = self.get_model_mut(model);
+        if let Some(surface) = model.surfaces.get_mut(surface_index) {
+            surface.mesh = mesh;
+            surface.material = material;
+        }
+    }
+
+    pub fn model_remove_surface(&mut self, model: Rid<Model>, surface_index: usize) {
+        let model = self.get_model_mut(model);
+        model.surfaces.remove(surface_index);
     }
 }
 
